@@ -104,12 +104,14 @@ end
 local function normalise_ttl(self, data)
     -- Calculate time since query and subtract from answer's TTL
     if self.normalise_ttl then
-        local diff = ngx_time() - data.now
+        local now = ngx_time()
+        local diff = now - data.now
         if DEBUG then debug_log("Normalising TTL, diff: ", diff) end
         for _, answer in ipairs(data.answer) do
             if DEBUG then debug_log("Old: ", answer.ttl, ", new: ", answer.ttl - diff) end
             answer.ttl = answer.ttl - diff
         end
+        data.now = now
     end
     return data
 end
