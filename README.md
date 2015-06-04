@@ -76,21 +76,21 @@ Accepts a table of options, if no shared dictionary is provided only lrucache is
 
 
 ### query
-`syntax: answers, err, stale = dns_cache.query(name, opts?)`
+`syntax: answers, err, stale = c:query(name, opts?)`
 
 Passes through to lua-resty-dns' [query](https://github.com/openresty/lua-resty-dns#query) method.
 
 Returns an extra `stale` variable containing stale data if a resolver cannot be contacted.
 
 ### tcp_query
-`syntax: answers, err, stale = dns_cache.tcp_query(name, opts?)`
+`syntax: answers, err, stale = c:tcp_query(name, opts?)`
 
 Passes through to lua-resty-dns' [tcp_query](https://github.com/openresty/lua-resty-dns#tcp_query) method.
 
 Returns an extra `stale` variable containing stale data if a resolver cannot be contacted.
 
 ### set_timeout
-`syntax: dns_cache:set_timeout(time)`
+`syntax: c:set_timeout(time)`
 
 Passes through to lua-resty-dns' [set_timeout](https://github.com/openresty/lua-resty-dns#set_timeout) method.
 
