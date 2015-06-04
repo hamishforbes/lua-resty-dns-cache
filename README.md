@@ -7,7 +7,7 @@ Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [
 
 #Overview
 
-```
+```lua
   lua_shared_dict dns_cache 1m;
 
   init_by_lua '
@@ -66,9 +66,9 @@ Calling this repeatedly will reset the LRU cache
 
 Returns a new DNS cache instance. Returns `nil` and a string on error
 
-Accepts a table of options
+Accepts a table of options, if no shared dictionary is provided only lrucache is used.
 
-* `dict` - Optional. Name of the [ngx.shared.DICT](https://github.com/openresty/lua-nginx-module#ngxshareddict) to use for cache.
+* `dict` - Name of the [ngx.shared.DICT](https://github.com/openresty/lua-nginx-module#ngxshareddict) to use for cache.
 * `resolver` - Table of options passed to [lua-resty-dns](https://github.com/openresty/lua-resty-dns#new). Defaults to using Google DNS.
 * `normalise_ttl` - Boolean. Reduces TTL in cached answers to account for cached time. Defaults to `true`.
 * `negative_ttl` - Time to cache negative / error responses. `nil` or `false` disables caching negative responses. Defaults to `false`
@@ -91,6 +91,7 @@ Returns an extra `stale` variable containing stale data if a resolver cannot be 
 
 ### set_timeout
 `syntax: dns_cache:set_timeout(time)`
+
 Passes through to lua-resty-dns' [set_timeout](https://github.com/openresty/lua-resty-dns#set_timeout) method.
 
 ## Constants
