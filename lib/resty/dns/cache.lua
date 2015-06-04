@@ -49,9 +49,10 @@ local resolver_defaults = {
 local lru_cache
 
 
-function _M.init_cache(opts)
-    opts = opts or lru_cache_defaults
-    lru_cache, err = resty_lrucache.new(unpack(opts))
+function _M.init_cache(max_items)
+    max_items = max_items or 200
+    local err
+    lru_cache, err = resty_lrucache.new(max_items)
     if not lru_cache then
         return nil, err
     end
