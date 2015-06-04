@@ -149,7 +149,7 @@ local function cache_get(self, key)
                     debug_log('lru_cache STALE: ', key)
                     debug_log(lru_stale)
                 end
-                return nil, normalise_ttl(self, data).answer
+                return nil, normalise_ttl(self, lru_stale).answer
             end
             return nil
         end
