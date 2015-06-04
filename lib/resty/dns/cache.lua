@@ -59,8 +59,16 @@ end
 
 
 function _M.new(opts)
-    local self, err = {}, nil
+    opts = opts or {}
 
+    -- Set defaults
+    local self = {
+        normalise_ttl  = opts.normalise_ttl  or true,
+        negative_ttl   = opts.negative_ttl   or false,
+        minimise_ttl   = opts.minimise_ttl   or false,
+    }
+
+    local err
     opts.resolver = opts.resolver or resolver_defaults
     self.resolver, err = resty_resolver:new(opts.resolver)
     if not self.resolver then
@@ -92,6 +100,20 @@ local function minimise_ttl(answer)
 end
 
 
+local function normalise_ttl(self, data)
+    -- Calculate time since query and subtract from answer's TTL
+    if self.normalise_ttl then
+        local diff = ngx_time() - data.now
+        if DEBUG then debug_log("Normalising TTL, diff: ", diff) end
+        for _, answer in ipairs(data.answer) do
+            if DEBUG then debug_log("Old: ", answer.ttl, ", new: ", answer.ttl - diff) end
+            answer.ttl = answer.ttl - diff
+        end
+    end
+    return data
+end
+
+
 local function cache_get(self, key)
     -- Try local LRU cache first
     local data, lru_stale
@@ -102,7 +124,7 @@ local function cache_get(self, key)
                 debug_log('lru_cache HIT: ', key)
                 debug_log(data)
             end
-            return data.answer
+            return normalise_ttl(self, data).answer
         elseif DEBUG then
             debug_log('lru_cache MISS: ', key)
         end
@@ -124,7 +146,7 @@ local function cache_get(self, key)
                     debug_log('lru_cache STALE: ', key)
                     debug_log(lru_stale)
                 end
-                return nil, lru_stale.answer
+                return nil, normalise_ttl(self, data).answer
             end
             return nil
         end
@@ -132,7 +154,7 @@ local function cache_get(self, key)
         -- Return nil and dict cache if its stale
         if stale then
             if DEBUG then debug_log('shared_dict STALE: ', key) end
-            return nil, data.answer
+            return nil, normalise_ttl(self, data).answer
         end
 
         -- Fresh HIT from dict, repopulate the lru_cache
@@ -142,7 +164,7 @@ local function cache_get(self, key)
             if DEBUG then debug_log('lru_cache SET: ', key, ' ', ttl) end
             lru_cache:set(key, data, ttl)
         end
-        return data.answer
+        return normalise_ttl(self, data).answer
     end
 
     if not lru_cache or dict then
@@ -208,7 +230,10 @@ local function _query(self, host, opts, tcp)
     -- Check caches
     local answer, stale = cache_get(self, key)
     if answer then
-        return answer
+        -- Don't return negative cache hits if negative_ttl is off in this instance
+        if not answer.errcode or self.negative_ttl then
+            return answer
+        end
     end
 
     -- No fresh cache entry, try to resolve
@@ -232,15 +257,15 @@ local function _query(self, host, opts, tcp)
 
     -- Cache server errors for negative_cache seconds, default to not caching them
     if answer.errcode then
-        if opts.negative_ttl then
-            ttl = opts.negative_ttl
+        if self.negative_ttl then
+            ttl = self.negative_ttl
         else
             return answer
         end
     end
 
     -- Cache for the lowest TTL in the chain of responses...
-    if opts.minimise_ttl then
+    if self.minimise_ttl then
         ttl = minimise_ttl(answer)
     elseif answer[1] then
         -- ... or just the first one
