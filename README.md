@@ -99,5 +99,6 @@ lua-resty-dns' [constants](https://github.com/openresty/lua-resty-dns#constants)
 
 ## TODO
  * Tests
+ * Proactive cache revalidation via timers
  * Cap'n'proto serialisation
 
