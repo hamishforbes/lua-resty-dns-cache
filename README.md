@@ -2,7 +2,7 @@
 
 A wrapper for [lua-resty-dns](https://github.com/openresty/lua-resty-dns) to cache responses based on record TTLs.
 
-Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [ngx.shared.DICT](https://github.com/openresty/lua-nginx-module#ngxshareddict) to provider a 2 level cache.
+Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [ngx.shared.DICT](https://github.com/openresty/lua-nginx-module#ngxshareddict) to provide a 2 level cache.
 
 
 #Overview
