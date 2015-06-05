@@ -67,16 +67,14 @@ end
 
 
 function _M.new(opts)
+    local self, err = {}, nil
     opts = opts or {}
 
     -- Set defaults
-    local self = {
-        normalise_ttl  = opts.normalise_ttl  or true,
-        negative_ttl   = opts.negative_ttl   or false,
-        minimise_ttl   = opts.minimise_ttl   or false,
-    }
+    if opts.normalise_ttl ~= nil then self.normalise_ttl = opts.normalise_ttl else self.normalise_ttl = true  end
+    if opts.negative_ttl  ~= nil then self.negative_ttl  = opts.negative_ttl  else self.negative_ttl  = false end
+    if opts.minimise_ttl  ~= nil then self.minimise_ttl  = opts.minimise_ttl  else self.minimise_ttl  = false end
 
-    local err
     opts.resolver = opts.resolver or resolver_defaults
     self.resolver, err = resty_resolver:new(opts.resolver)
     if not self.resolver then
@@ -86,7 +84,6 @@ function _M.new(opts)
     if opts.dict then
         self.dict = ngx_shared[opts.dict]
     end
-
     return setmetatable(self, mt)
 end
 
