@@ -36,6 +36,8 @@ Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [
                 if err then
                     if stale then
                         ngx.header["Warning"] = "110: Response is stale"
+                        answer = stale
+                        ngx.log(ngx.ERR, err)
                     else
                         ngx.status = 500
                         ngx.say(err)
