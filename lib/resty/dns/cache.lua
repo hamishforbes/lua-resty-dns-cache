@@ -199,6 +199,7 @@ local function cache_set(self, key, answer, ttl)
     local data = {
         answer = answer,
         now = now,
+        queried = now,
         expires = now + ttl
     }
 
@@ -270,21 +271,21 @@ local function _query(self, host, opts, tcp)
 
     local ttl
 
-    -- Cache server errors for negative_cache seconds, default to not caching them
+    -- Cache server errors for negative_cache seconds
     if answer.errcode then
         if self.negative_ttl then
             ttl = self.negative_ttl
         else
             return answer
         end
-    end
-
-    -- Cache for the lowest TTL in the chain of responses...
-    if self.minimise_ttl then
-        ttl = minimise_ttl(answer)
-    elseif answer[1] then
-        -- ... or just the first one
-        ttl = answer[1].ttl or nil
+    else
+        -- Cache for the lowest TTL in the chain of responses...
+        if self.minimise_ttl then
+            ttl = minimise_ttl(answer)
+        elseif answer[1] then
+            -- ... or just the first one
+            ttl = answer[1].ttl or nil
+        end
     end
 
     -- Set cache
