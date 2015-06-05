@@ -145,21 +145,23 @@ local function cache_get(self, key)
     -- lru_cache miss, try shared dict
     local dict = self.dict
     if dict then
-        local data, flags, stale = dict:get(key)
+        local data, flags, stale = dict:get_stale(key)
 
+        -- Dict data is stale, prefer stale LRU data
+        if stale and lru_stale then
+            if DEBUG then
+                debug_log('lru_cache STALE: ', key)
+                debug_log(lru_stale)
+            end
+            return nil, normalise_ttl(self, lru_stale).answer
+        end
+
+        -- Definitely no lru data, going to have to try shared dict
         if data then
-            -- shared dict populates 'data' even if stale, decode it now
             data = json_decode(data)
         else
-            -- No data in dict cache, return stale lru_cache if possible
+            -- Full MISS on dict, return nil
             if DEBUG then debug_log('shared_dict MISS: ', key) end
-            if lru_stale then
-                if DEBUG then
-                    debug_log('lru_cache STALE: ', key)
-                    debug_log(lru_stale)
-                end
-                return nil, normalise_ttl(self, lru_stale).answer
-            end
             return nil
         end
 
@@ -177,6 +179,13 @@ local function cache_get(self, key)
             lru_cache:set(key, data, ttl)
         end
         return normalise_ttl(self, data).answer
+    elseif lru_stale then
+        -- Return lru stale if no dict configured
+        if DEBUG then
+            debug_log('lru_cache STALE: ', key)
+            debug_log(lru_stale)
+        end
+        return nil, normalise_ttl(self, lru_stale).answer
     end
 
     if not lru_cache or dict then
