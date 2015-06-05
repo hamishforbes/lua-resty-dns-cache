@@ -61,6 +61,11 @@ Accepts an optional `max_items` argument, defaults to 200 entries.
 
 Calling this repeatedly will reset the LRU cache
 
+### initted
+`syntax: ok = dns_cache.initted()`
+
+Returns `true` if LRU Cache has been initialised
+
 ### new
 `syntax: ok, err = dns_cache.new(opts)`
 
@@ -98,7 +103,6 @@ Passes through to lua-resty-dns' [set_timeout](https://github.com/openresty/lua-
 lua-resty-dns' [constants](https://github.com/openresty/lua-resty-dns#constants) are accessible on the `resty.dns.cache` object too.
 
 ## TODO
- * Tests
  * Proactive cache revalidation via timers
  * Cap'n'proto serialisation
 
