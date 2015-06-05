@@ -76,8 +76,8 @@ Accepts a table of options, if no shared dictionary is provided only lrucache is
 * `dict` - Name of the [ngx.shared.DICT](https://github.com/openresty/lua-nginx-module#ngxshareddict) to use for cache.
 * `resolver` - Table of options passed to [lua-resty-dns](https://github.com/openresty/lua-resty-dns#new). Defaults to using Google DNS.
 * `normalise_ttl` - Boolean. Reduces TTL in cached answers to account for cached time. Defaults to `true`.
-* `negative_ttl` - Time to cache negative / error responses. `nil` or `false` disables caching negative responses. Defaults to `false`
-* `minimise_ttl` - Set cache TTL based on the shortest DNS TTL in all responses rather than the first response.
+* `negative_ttl` - Time in seconds to cache negative / error responses. `nil` or `false` disables caching negative responses. Defaults to `false`
+* `minimise_ttl` - Boolean. Set cache TTL based on the shortest DNS TTL in all responses rather than the first response. Defaults to `false`
 
 
 ### query
