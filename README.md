@@ -4,6 +4,7 @@ A wrapper for [lua-resty-dns](https://github.com/openresty/lua-resty-dns) to cac
 
 Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [ngx.shared.DICT](https://github.com/openresty/lua-nginx-module#ngxshareddict) to provide a 2 level cache.
 
+Can repopulate cache automatically when TTLs expire.
 
 #Overview
 
@@ -25,6 +26,8 @@ Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [
                 local dns = DNS_Cache.new({
                         dict = "dns_cache",
                         negative_ttl = 30,
+                        max_stale = 30,
+                        repopulate = true,
                         resolver  = {
                             nameservers = {"123.123.123.123"}
                         }
@@ -106,6 +109,5 @@ Passes through to lua-resty-dns' [set_timeout](https://github.com/openresty/lua-
 lua-resty-dns' [constants](https://github.com/openresty/lua-resty-dns#constants) are accessible on the `resty.dns.cache` object too.
 
 ## TODO
- * Proactive cache revalidation via timers
  * Cap'n'proto serialisation
 
