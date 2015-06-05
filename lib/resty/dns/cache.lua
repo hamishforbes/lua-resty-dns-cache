@@ -91,6 +91,11 @@ function _M.new(opts)
 end
 
 
+function _M._debug(flag)
+    DEBUG = flag
+end
+
+
 function _M.set_timeout(self, ...)
     return self.resolver:set_timeout(...)
 end
