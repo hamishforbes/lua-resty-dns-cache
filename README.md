@@ -79,6 +79,8 @@ Accepts a table of options, if no shared dictionary is provided only lrucache is
 * `normalise_ttl` - Boolean. Reduces TTL in cached answers to account for cached time. Defaults to `true`.
 * `negative_ttl` - Time in seconds to cache negative / error responses. `nil` or `false` disables caching negative responses. Defaults to `false`
 * `minimise_ttl` - Boolean. Set cache TTL based on the shortest DNS TTL in all responses rather than the first response. Defaults to `false`
+* `repopulate` - Boolean. Repopulate cache entries when they expire.
+* `max_stale` - Number of seconds past expiry to return stale content rather than querying. Combined with repopulate to avoid touching network on fast paths.
 
 
 ### query
