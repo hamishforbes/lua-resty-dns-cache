@@ -244,10 +244,9 @@ end
 
 local function _query(self, host, opts, tcp)
     -- Build cache key
-    local key = host
-    if opts and opts.qtype then
-        key = tbl_concat({key,'|',opts.qtype})
-    end
+    opts = opts or {}
+    local qtype = opts.qtype or 1
+    local key = tbl_concat({host,'|',qtype})
 
     -- Check caches
     local answer, stale = cache_get(self, key)
