@@ -9,6 +9,18 @@ local cjson = require "cjson"
 local json_encode = cjson.encode
 local json_decode = cjson.decode
 local tbl_concat = table.concat
+local tonumber = tonumber
+local _ngx_timer_at = ngx.timer.at
+local ngx_worker_pid = ngx.worker.pid
+
+local function ngx_timer_at(delay, func, ...)
+    local ok, err = _ngx_timer_at(delay, func, ...)
+    if not ok then
+        ngx_log(ngx_ERR, "Timer Error: ", err)
+    end
+    return ok, err
+end
+
 
 local debug_log = function(msg, ...)
     if type(msg) == 'table' then
@@ -67,13 +79,23 @@ end
 
 
 function _M.new(opts)
-    local self, err = {}, nil
+    local self, err = { opts = opts}, nil
     opts = opts or {}
 
     -- Set defaults
     if opts.normalise_ttl ~= nil then self.normalise_ttl = opts.normalise_ttl else self.normalise_ttl = true  end
-    if opts.negative_ttl  ~= nil then self.negative_ttl  = opts.negative_ttl  else self.negative_ttl  = false end
     if opts.minimise_ttl  ~= nil then self.minimise_ttl  = opts.minimise_ttl  else self.minimise_ttl  = false end
+    if opts.repopulate    ~= nil then self.repopulate    = opts.repopulate    else self.repopulate    = false end
+    if opts.negative_ttl  ~= nil then
+        self.negative_ttl = tonumber(opts.negative_ttl)
+    else
+        self.negative_ttl = false
+    end
+    if opts.max_stale ~= nil then
+        self.max_stale = tonumber(opts.max_stale)
+    else
+        self.max_stale = 0
+    end
 
     opts.resolver = opts.resolver or resolver_defaults
     self.resolver, err = resty_resolver:new(opts.resolver)
@@ -99,6 +121,7 @@ end
 
 
 local function minimise_ttl(answer)
+    if DEBUG then debug_log('Minimising TTL') end
     local ttl
     for _, ans in ipairs(answer) do
         if DEBUG then debug_log('TTL ', ans.name, ': ', ans.ttl) end
@@ -136,7 +159,7 @@ local function cache_get(self, key)
                 debug_log('lru_cache HIT: ', key)
                 debug_log(data)
             end
-            return normalise_ttl(self, data).answer
+            return normalise_ttl(self, data)
         elseif DEBUG then
             debug_log('lru_cache MISS: ', key)
         end
@@ -153,7 +176,7 @@ local function cache_get(self, key)
                 debug_log('lru_cache STALE: ', key)
                 debug_log(lru_stale)
             end
-            return nil, normalise_ttl(self, lru_stale).answer
+            return nil, normalise_ttl(self, lru_stale)
         end
 
         -- Definitely no lru data, going to have to try shared dict
@@ -168,7 +191,7 @@ local function cache_get(self, key)
         -- Return nil and dict cache if its stale
         if stale then
             if DEBUG then debug_log('shared_dict STALE: ', key) end
-            return nil, normalise_ttl(self, data).answer
+            return nil, normalise_ttl(self, data)
         end
 
         -- Fresh HIT from dict, repopulate the lru_cache
@@ -178,14 +201,14 @@ local function cache_get(self, key)
             if DEBUG then debug_log('lru_cache SET: ', key, ' ', ttl) end
             lru_cache:set(key, data, ttl)
         end
-        return normalise_ttl(self, data).answer
+        return normalise_ttl(self, data)
     elseif lru_stale then
         -- Return lru stale if no dict configured
         if DEBUG then
             debug_log('lru_cache STALE: ', key)
             debug_log(lru_stale)
         end
-        return nil, normalise_ttl(self, lru_stale).answer
+        return nil, normalise_ttl(self, lru_stale)
     end
 
     if not lru_cache or dict then
@@ -242,22 +265,96 @@ local function _resolve(resolver, query_func, host, opts)
 end
 
 
-local function _query(self, host, opts, tcp)
+local function cache_key(host, qtype)
+    return tbl_concat({host,'|',qtype})
+end
+
+
+local function get_repopulate_lock(dict, host, qtype, ttl)
+    local key = cache_key(host, qtype or 1) .. '|lock'
+    if DEBUG then debug_log("Locking '", key, "' for ", (ttl+30), "s: ", ngx_worker_pid()) end
+    return dict:add(key, ngx_worker_pid(), ttl+30)
+end
+
+
+local function release_repopulate_lock(dict, host, qtype)
+    local key = cache_key(host, qtype or 1) .. '|lock'
+    local pid, err = dict:get(key)
+    if DEBUG then debug_log("Releasing '", key, "' for ", ngx_worker_pid(), " from ", pid) end
+    if pid == ngx_worker_pid() then
+        dict:delete(key)
+    else
+        ngx_log(ngx_DEBUG, "couldnt release lock")
+    end
+end
+
+
+local _query
+
+local function _repopulate(premature, self, host, opts, tcp, ttl)
+    if premature then return end
+
+    if DEBUG then debug_log("Repopulating ", host) end
+    -- Create a new resolver instance, cannot share sockets
+    local err
+    self.resolver, err = resty_resolver:new(self.opts.resolver)
+    if err then
+        ngx_log(ngx_ERR, err)
+        return nil
+    end
+    -- Do not use stale when repopulating
+    _query(self, host, opts, tcp, ttl, true)
+end
+
+
+local function repopulate(self, host, opts, tcp, ttl)
+    -- Lock, there's a window between ttl expiry and cache being updated
+    -- during which a query with short max_stale could trigger duplicate repopulate jobs
+    local ok, err = get_repopulate_lock(self.dict, host, opts.qtype, ttl)
+    if ok then
+        ttl = ttl + 1
+        if DEBUG then debug_log("Repopulating '", host, "' in ", ttl) end
+        local ok, err = ngx_timer_at(ttl, _repopulate, self, host, opts, tcp, ttl)
+        if not ok then
+            -- Release lock if we couldn't start the timer
+            release_repopulate_lock(self.dict, host, opts.qtype)
+        end
+    else
+        if err == "exists" then
+            if DEBUG then debug_log("Lock not acquired") end
+            return
+        else
+            ngx.log(ngx.ERR, err)
+        end
+    end
+end
+
+
+_query = function(self, host, opts, tcp, repopulating)
     -- Build cache key
     opts = opts or {}
-    local qtype = opts.qtype or 1
-    local key = tbl_concat({host,'|',qtype})
+    local key = cache_key(host, opts.qtype or 1)
 
     -- Check caches
-    local answer, stale = cache_get(self, key)
-    if answer then
+    local answer
+    local data, stale = cache_get(self, key)
+    if data then
+        answer = data.answer
         -- Don't return negative cache hits if negative_ttl is off in this instance
         if not answer.errcode or self.negative_ttl then
+            if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
             return answer
         end
     end
 
-    -- No fresh cache entry, try to resolve
+    -- No fresh cache entry, return stale?
+    if stale and not repopulating and self.max_stale > 0
+        and (ngx_time() - stale.expires) < self.max_stale then
+            if DEBUG then debug_log('Returning STALE: ', key) end
+            return nil, nil, stale.answer
+    end
+
+    -- Try to resolve
     local resolver = self.resolver
     local query_func = resolver.query
     if tcp then
@@ -266,11 +363,13 @@ local function _query(self, host, opts, tcp)
 
     local answer, err = _resolve(resolver, query_func, host, opts)
     if not answer then
-        -- Couldn't resolve, return stale if we have it
+        -- Couldn't resolve, return potential stale response with error msg
         if DEBUG then
             debug_log('Resolver error ', key, ': ', err)
             if stale then debug_log('Returning STALE: ', key) end
         end
+        if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
+        if stale then stale = stale.answer end
         return nil, err, stale
     end
 
@@ -281,6 +380,7 @@ local function _query(self, host, opts, tcp)
         if self.negative_ttl then
             ttl = self.negative_ttl
         else
+            if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
             return answer
         end
     else
@@ -295,6 +395,13 @@ local function _query(self, host, opts, tcp)
 
     -- Set cache
     cache_set(self, key, answer, ttl)
+
+    -- Trigger another query in after 'ttl' seconds
+    if self.repopulate then
+        if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
+        repopulate(self, host, opts, tcp, ttl)
+    end
+
     return answer
 end
 
