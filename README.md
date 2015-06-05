@@ -44,10 +44,9 @@ Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [
                         return ngx.exit(ngx.status)
                     end
                 end
+
                 local cjson = require "cjson"
                 ngx.say(cjson.encode(answer))
-
-
             ';
         }
     }
