@@ -56,6 +56,13 @@ function _M.init_cache(max_items)
     if not lru_cache then
         return nil, err
     end
+    return true
+end
+
+
+function _M.initted()
+    if lru_cache then return true end
+    return false
 end
 
 
