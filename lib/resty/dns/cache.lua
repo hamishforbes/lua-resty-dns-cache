@@ -170,6 +170,11 @@ local function cache_get(self, key)
     local data, lru_stale
     if lru_cache then
         data, lru_stale = lru_cache:get(key)
+        -- Set stale if should have expired
+        if data and data.expires <= ngx_time() then
+            lru_stale = data
+            data = nil
+        end
         if data then
             if DEBUG then
                 debug_log('lru_cache HIT: ', key)
@@ -185,6 +190,13 @@ local function cache_get(self, key)
     local dict = self.dict
     if dict then
         local data, flags, stale = dict:get_stale(key)
+        -- Set stale if should have expired
+        if data then
+            data = json_decode(data)
+            if data.expires <= ngx_time() then
+                stale = true
+            end
+        end
 
         -- Dict data is stale, prefer stale LRU data
         if stale and lru_stale then
@@ -196,9 +208,7 @@ local function cache_get(self, key)
         end
 
         -- Definitely no lru data, going to have to try shared dict
-        if data then
-            data = json_decode(data)
-        else
+        if not data then
             -- Full MISS on dict, return nil
             if DEBUG then debug_log('shared_dict MISS: ', key) end
             return nil
@@ -248,17 +258,23 @@ local function cache_set(self, key, answer, ttl)
         expires = now + ttl
     }
 
+    -- Extend cache expiry if using stale
+    local real_ttl = ttl
+    if self.max_stale then
+        real_ttl = real_ttl + self.max_stale
+    end
+
     -- Set lru cache
     if lru_cache then
-        if DEBUG then debug_log('lru_cache SET: ', key, ' ', ttl) end
-        lru_cache:set(key, data, ttl)
+        if DEBUG then debug_log('lru_cache SET: ', key, ' ', real_ttl) end
+        lru_cache:set(key, data, real_ttl)
     end
 
     -- Set dict cache
     local dict = self.dict
     if dict then
-        if DEBUG then debug_log('shared_dict SET: ', key, ' ', ttl) end
-        local ok, err, forcible = dict:set(key, json_encode(data), ttl)
+        if DEBUG then debug_log('shared_dict SET: ', key, ' ', real_ttl) end
+        local ok, err, forcible = dict:set(key, json_encode(data), real_ttl)
         if not ok then
             ngx_log(ngx_ERR, 'shared_dict ERR: ', err)
         end
