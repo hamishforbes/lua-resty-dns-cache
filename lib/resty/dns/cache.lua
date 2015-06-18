@@ -59,11 +59,12 @@ local resolver_defaults = {
 
 -- Global lrucache instance
 local lru_cache
+local max_items = 200
 
-
-function _M.init_cache(max_items)
-    max_items = max_items or 200
+function _M.init_cache(size)
+    if size then max_items = size end
     local err
+    if DEBUG then debug_log("Initialising lru cache with ", max_items, " max items") end
     lru_cache, err = resty_lrucache.new(max_items)
     if not lru_cache then
         return nil, err
@@ -85,7 +86,6 @@ function _M.new(opts)
     -- Set defaults
     if opts.normalise_ttl ~= nil then self.normalise_ttl = opts.normalise_ttl else self.normalise_ttl = true  end
     if opts.minimise_ttl  ~= nil then self.minimise_ttl  = opts.minimise_ttl  else self.minimise_ttl  = false end
-    if opts.repopulate    ~= nil then self.repopulate    = opts.repopulate    else self.repopulate    = false end
     if opts.negative_ttl  ~= nil then
         self.negative_ttl = tonumber(opts.negative_ttl)
     else
@@ -107,6 +107,22 @@ function _M.new(opts)
         self.dict = ngx_shared[opts.dict]
     end
     return setmetatable(self, mt)
+end
+
+
+function _M.flush(self, hard)
+    local ok, err = self.init_cache()
+    if not ok then
+        ngx_log(ngx_ERR, err)
+    end
+    if self.dict then
+        if DEBUG then debug_log("Flushing dictionary") end
+        self.dict:flush_all()
+        if hard then
+            local flushed = self.dict:flush_expired()
+            if DEBUG then debug_log("Flushed ", flushed, " keys from memory") end
+        end
+    end
 end
 
 
@@ -270,10 +286,10 @@ local function cache_key(host, qtype)
 end
 
 
-local function get_repopulate_lock(dict, host, qtype, ttl)
+local function get_repopulate_lock(dict, host, qtype)
     local key = cache_key(host, qtype or 1) .. '|lock'
-    if DEBUG then debug_log("Locking '", key, "' for ", (ttl+30), "s: ", ngx_worker_pid()) end
-    return dict:add(key, ngx_worker_pid(), ttl+30)
+    if DEBUG then debug_log("Locking '", key, "' for ", 30, "s: ", ngx_worker_pid()) end
+    return dict:add(key, ngx_worker_pid(), 30)
 end
 
 
@@ -291,10 +307,10 @@ end
 
 local _query
 
-local function _repopulate(premature, self, host, opts, tcp, ttl)
+local function _repopulate(premature, self, host, opts, tcp)
     if premature then return end
 
-    if DEBUG then debug_log("Repopulating ", host) end
+    if DEBUG then debug_log("Repopulating '", host, "'") end
     -- Create a new resolver instance, cannot share sockets
     local err
     self.resolver, err = resty_resolver:new(self.opts.resolver)
@@ -303,18 +319,17 @@ local function _repopulate(premature, self, host, opts, tcp, ttl)
         return nil
     end
     -- Do not use stale when repopulating
-    _query(self, host, opts, tcp, ttl, true)
+    _query(self, host, opts, tcp, true)
 end
 
 
-local function repopulate(self, host, opts, tcp, ttl)
-    -- Lock, there's a window between ttl expiry and cache being updated
-    -- during which a query with short max_stale could trigger duplicate repopulate jobs
-    local ok, err = get_repopulate_lock(self.dict, host, opts.qtype, ttl)
+local function repopulate(self, host, opts, tcp)
+    -- Lock, there's a window between the key expiring and the background query completing
+    -- during which another query could trigger duplicate repopulate jobs
+    local ok, err = get_repopulate_lock(self.dict, host, opts.qtype)
     if ok then
-        ttl = ttl + 1
-        if DEBUG then debug_log("Repopulating '", host, "' in ", ttl) end
-        local ok, err = ngx_timer_at(ttl, _repopulate, self, host, opts, tcp, ttl)
+        if DEBUG then debug_log("Attempting to repopulate '", host, "'") end
+        local ok, err = ngx_timer_at(0, _repopulate, self, host, opts, tcp)
         if not ok then
             -- Release lock if we couldn't start the timer
             release_repopulate_lock(self.dict, host, opts.qtype)
@@ -339,17 +354,20 @@ _query = function(self, host, opts, tcp, repopulating)
     local answer
     local data, stale = cache_get(self, key)
     if data then
+        -- Shouldn't get a cache hit when repopulating but better safe than sorry
+        if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
         answer = data.answer
         -- Don't return negative cache hits if negative_ttl is off in this instance
         if not answer.errcode or self.negative_ttl then
-            if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
             return answer
         end
     end
 
-    -- No fresh cache entry, return stale?
+    -- No fresh cache entry, return stale if within max_stale and trigger background repopulate
     if stale and not repopulating and self.max_stale > 0
         and (ngx_time() - stale.expires) < self.max_stale then
+            if DEBUG then debug_log('max_stale ', self.max_stale) end
+            repopulate(self, host, opts, tcp)
             if DEBUG then debug_log('Returning STALE: ', key) end
             return nil, nil, stale.answer
     end
@@ -396,11 +414,7 @@ _query = function(self, host, opts, tcp, repopulating)
     -- Set cache
     cache_set(self, key, answer, ttl)
 
-    -- Trigger another query in after 'ttl' seconds
-    if self.repopulate then
-        if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
-        repopulate(self, host, opts, tcp, ttl)
-    end
+    if repopulating then release_repopulate_lock(self.dict, host, opts.qtype) end
 
     return answer
 end
