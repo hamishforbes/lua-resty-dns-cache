@@ -1,4 +1,4 @@
-#lua-resty-dns-cache
+# lua-resty-dns-cache
 
 A wrapper for [lua-resty-dns](https://github.com/openresty/lua-resty-dns) to cache responses based on record TTLs.
 
@@ -6,7 +6,7 @@ Uses [lua-resty-lrucache](https://github.com/openresty/lua-resty-lrucache) and [
 
 Can repopulate cache in the background while returning stale answers.
 
-#Overview
+# Overview
 
 ```lua
   lua_shared_dict dns_cache 1m;
@@ -54,7 +54,7 @@ Can repopulate cache in the background while returning stale answers.
     }
 ```
 
-#Methods
+# Methods
 ### init_cache
 `syntax: ok, err = dns_cache.init_cache(max_items?)`
 
